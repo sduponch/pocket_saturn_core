@@ -14,10 +14,13 @@
 //   0x80000010  W  Blurred VDP1 mesh (MiSTer OV)        0 Off, 1 On                              (reset 0)
 //   0x80000014  W  Deinterlacing (MiSTer O[29])         0 Weave (APF), 1 Bob                     (reset 0)
 //   0x80000018  W  Pad mapping (pk_pad presets)         0..3                                     (reset 0)
-//   0x8000001C  W  JVS (Analogizer SNAC adapter)        0 Off, 1 pads, 2 P1 gun, 3 P1 + P2 guns: a JVS board's
-//                                                       players as the two pads or Virtua Guns
+//   0x8000001C  W  JVS (Analogizer SNAC adapter)        0 Off, 1 pads, 2 P1 gun, 3 P1 + P2 guns, 4 P1 3D pad,
+//                                                       5 P1 wheel: a JVS board's players as the two pads,
+//                                                       Virtua Guns, a 3D Control Pad or an Arcade Racer
 //                                                       (glue/sat_jvs.sv, fw/cdb/smpc_jvs.c)     (reset 0)
 //   0x8000002C  W  JVS recoil                           0 Off, 1 single, 2 auto                  (reset 1)
+//   0x80000040  W  Analogizer video                     0 Off, 1 RGBS, 2 RGBHV 31 kHz (glue/sat_avideo.sv)
+//                                                                                                (reset 0)
 //   not in interact.json, for an instance JSON's "memory_writes" (per game; MiSTer's main program takes these from
 //   the disc header and its database, which the Pocket does not have):
 //   0x80000020  W  area code for Region = Auto          SMPC area code 4 bits                    (reset 4 = USA)
@@ -70,8 +73,9 @@ module pk_settings (
 	output wire        dbg_gap2,           // (A6) clk_sys: 1 = PSRAM gap of two cycles
 `endif
 	output wire [ 2:0] cart_type_74,       // clk_74a: cart_type as set (pk_save: backup cartridge slot size)
-	output reg  [ 1:0] jvs_74 = 2'd0,      // clk_74a: "JVS" (sat_jvs synchronises it)
-	output reg  [ 1:0] jvs_recoil_74 = 2'd1 // clk_74a: "JVS recoil"
+	output reg  [ 2:0] jvs_74 = 3'd0,      // clk_74a: "JVS" (sat_jvs synchronises it)
+	output reg  [ 1:0] jvs_recoil_74 = 2'd1, // clk_74a: "JVS recoil"
+	output reg  [ 1:0] avideo_74 = 2'd0     // clk_74a: "Analogizer video"
 );
 	// ---------------------------------------------------------------- clk_74a registers
 	reg  [2:0] r_cart = 3'd0, r_region = 3'd7, r_acart = 3'd0;
@@ -101,8 +105,9 @@ module pk_settings (
 			6'h04: r_blur <= v[0];
 			6'h05: r_bob <= v[0];
 			6'h06: r_pad <= v[1:0];
-			6'h07: jvs_74 <= v[1:0];
+			6'h07: jvs_74 <= v[2:0];
 			6'h0B: jvs_recoil_74 <= v[1:0];
+			6'h10: avideo_74 <= v[1:0];
 			6'h08: r_aarea <= v[3:0];
 			6'h09: r_acart <= v[2:0];
 			6'h0A: r_dz <= v[0];

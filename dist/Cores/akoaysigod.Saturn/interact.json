@@ -187,6 +187,14 @@
                     {
                         "value": 3,
                         "name": "P1 + P2 guns"
+                    },
+                    {
+                        "value": 4,
+                        "name": "P1 3D pad"
+                    },
+                    {
+                        "value": 5,
+                        "name": "P1 wheel"
                     }
                 ]
             },
@@ -211,6 +219,30 @@
                     {
                         "value": 2,
                         "name": "Auto"
+                    }
+                ]
+            },
+            {
+                "name": "Analogizer video",
+                "id": 14,
+                "type": "list",
+                "enabled": true,
+                "persist": true,
+                "writeonly": true,
+                "address": "0x80000040",
+                "defaultval": 0,
+                "options": [
+                    {
+                        "value": 0,
+                        "name": "Off"
+                    },
+                    {
+                        "value": 1,
+                        "name": "RGBS"
+                    },
+                    {
+                        "value": 2,
+                        "name": "RGBHV (31 kHz)"
                     }
                 ]
             }

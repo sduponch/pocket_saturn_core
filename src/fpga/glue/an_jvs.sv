@@ -62,7 +62,7 @@ logic        pend;                          // a transaction asked for by XFER a
 logic [6:0]  x_n;                           // the frame XFER gave: what is sent (and resent)
 logic        x_to, x_bad;
 logic [7:0]  r_cnt;                         // the last good answer's bytes
-logic [7:0]  n_good, n_err;
+logic [7:0]  n_good;                       // (the Saturn: no ERRORS count, STAT[23:16] reads 0)
 logic        cur;                           // the buffer half the last good answer is in
 logic        e;
 assign e  = on && own;
@@ -120,7 +120,6 @@ task automatic finish(input logic good);
     st <= S_GAP; cnt <= 11'(TAIL - 1); pend <= 1'b0; r_act <= 1'b0;
     x_to <= !good && !inf && !ferr; x_bad <= !good && (inf || ferr);
     if (good) begin cur <= ~cur; r_cnt <= k + 8'd1; n_good <= n_good + 8'd1; end
-    else n_err <= n_err + 8'd1;
 endtask
 
 always_ff @(posedge clk) begin
@@ -129,7 +128,7 @@ always_ff @(posedge clk) begin
     if (ms_end && pm != 8'hFF) pm <= pm + 8'd1;
     if (rst) begin
         st <= S_IDLE; on <= 1'b0; poll <= 1'b0; period <= 8'd20; ptr <= '0; pend <= 1'b0; x_n <= '0; x_to <= 1'b0; x_bad <= 1'b0;
-        r_cnt <= '0; n_good <= '0; n_err <= '0; cur <= 1'b0; r_act <= 1'b0; pm <= 8'hFF;
+        r_cnt <= '0; n_good <= '0; cur <= 1'b0; r_act <= 1'b0; pm <= 8'hFF;
     end else begin
         // the registers
         if (sel_wr && a == 4'd1) begin on <= wd[0]; poll <= wd[1]; period <= wd[15:8]; end
@@ -202,7 +201,7 @@ always_comb begin
     case (a)
     4'd0: rd = 32'h4A56_0001;
     4'd1: rd = {16'd0, period, 6'd0, poll, on};
-    4'd2: rd = {8'd0, n_err, n_good, 7'd0, se_s};
+    4'd2: rd = {16'd0, n_good, 7'd0, se_s};
     4'd3: rd = {pend, x_to, x_bad, 21'd0, r_cnt};
     4'd4: rd = {24'd0, ptr};
     4'd5: rd = {24'd0, qa};

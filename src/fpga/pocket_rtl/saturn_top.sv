@@ -120,7 +120,12 @@ module saturn_top #(
 	output wire        jvs_tx,
 	output wire        jvs_dir,
 	input  wire        jvs_rx,
-	input  wire        jvs_sense
+	input  wire        jvs_sense,
+	// the Analogizer adapter's analog video (glue/sat_avideo.sv): banks 3, 2 and bank 1 [5:0] while avid_en
+	output wire        avid_en,
+	output wire [ 7:0] avid_bank3,
+	output wire [ 7:0] avid_bank2,
+	output wire [ 5:0] avid_bank1       // {the DAC's clock (clk_pix_90), B[5:1]}
 );
 	// ============================================================================================== clocks
 	wire        clk_sys, clk_ram;
@@ -150,7 +155,8 @@ module saturn_top #(
 	wire [ 3:0] area_code;
 	wire        set_fast, set_blur, set_bob, set_dz;
 	wire [ 1:0] set_padmap;
-	wire [ 1:0] set_jvs_74, set_jrec_74;   // clk_74a: the menu's "JVS" and "JVS recoil" (sat_jvs)
+	wire [ 2:0] set_jvs_74;                // clk_74a: the menu's "JVS" and "JVS recoil" (sat_jvs)
+	wire [ 1:0] set_jrec_74, set_avid_74;
 	wire [64:0] RTC;
 `ifdef A6_DBG
 	wire [ 1:0] set_lay;                   // (A6) clk_sys settings
@@ -174,7 +180,7 @@ module saturn_top #(
 		.rtc_valid(rtc_valid), .rtc_date_bcd(rtc_date_bcd), .rtc_time_bcd(rtc_time_bcd),
 		.clk_sys(clk_sys), .cart_type(cart_type), .area_code(area_code), .pal(PAL), .fast(set_fast), .blur(set_blur),
 		.bob(set_bob), .padmap(set_padmap), .dz_en(set_dz), .usr_reset(usr_reset), .rtc(RTC), .cart_type_74(cart_type_74),
-		.jvs_74(set_jvs_74), .jvs_recoil_74(set_jrec_74)
+		.jvs_74(set_jvs_74), .jvs_recoil_74(set_jrec_74), .avideo_74(set_avid_74)
 `ifdef A6_DBG
 		, .dbg_layout(set_lay), .dbg_wcoff(set_wcoff), .dbg_flgoff(set_flgoff), .dbg_gap2(set_gap2)
 `endif
@@ -311,39 +317,41 @@ module saturn_top #(
 	wire [15:0] joy1, jvs_joy1, jvs_joy2;
 	wire        jvs_pads;
 	wire [ 1:0] gun_on, gun_trig, gun_start, gun_sensor;
-	wire [ 7:0] gun_x [2], gun_y [2];
+	wire [ 9:0] gun_x [2];
+	wire [ 8:0] gun_y [2];
+	wire [ 1:0] gun_off;
+	wire [ 1:0] ana_mode;
+	wire [ 7:0] ana_x, ana_y, ana_l, ana_r;
 	pk_pad ipad (.clk_sys(clk_sys), .keys_74(cont1_key), .map(set_padmap), .joy1(joy1));
 	HPS2PAD PAD (
+		.CLK(clk_sys), .RST_N(~rst_sys), .SMPC_CE(SMPC_CE),
 		.PDR1I(SMPC_PDR1I), .PDR1O(SMPC_PDR1O), .DDR1(SMPC_DDR1),
 		.PDR2I(SMPC_PDR2I), .PDR2O(SMPC_PDR2O), .DDR2(SMPC_DDR2),
 		.JOY1(jvs_pads ? jvs_joy1 : joy1), .JOY2(jvs_joy2), .JOY2_ON(jvs_pads),
 		.LGUN1_ON(gun_on[0]), .LGUN1_TRIG(gun_trig[0]), .LGUN1_START(gun_start[0]), .LGUN1_SENSOR(gun_sensor[0]),
-		.LGUN2_ON(gun_on[1]), .LGUN2_TRIG(gun_trig[1]), .LGUN2_START(gun_start[1]), .LGUN2_SENSOR(gun_sensor[1])
+		.LGUN2_ON(gun_on[1]), .LGUN2_TRIG(gun_trig[1]), .LGUN2_START(gun_start[1]), .LGUN2_SENSOR(gun_sensor[1]),
+		.ANA1_MODE(ana_mode), .ANA1_X(ana_x), .ANA1_Y(ana_y), .ANA1_L(ana_l), .ANA1_R(ana_r)
 	);
 	// a JVS board's two players as the two pads or Virtua Guns, the CD block's firmware polling it (fw/cdb/smpc_jvs.c);
-	// "JVS (Analogizer)": 0 off, 1 pads, 2 P1 gun, 3 P1 + P2 guns
+	// "JVS (Analogizer)": 0 off, 1 pads, 2 P1 gun, 3 P1 + P2 guns, 4 P1 3D Control Pad, 5 P1 Arcade Racer
 	sat_jvs #(.CLK_HZ(53_748_200)) ijvs (
-		.clk(clk_sys), .rst(rst_sys), .on_74(set_jvs_74 != 2'd0), .guns_74(set_jvs_74 == 2'd3 ? 2'd2 : set_jvs_74 == 2'd2 ? 2'd1 : 2'd0),
+		.clk(clk_sys), .rst(rst_sys), .on_74(set_jvs_74 != 3'd0), .guns_74(set_jvs_74 == 3'd3 ? 2'd2 : set_jvs_74 == 3'd2 ? 2'd1 : 2'd0),
+		.ana_74(set_jvs_74 == 3'd4 ? 2'd1 : set_jvs_74 == 3'd5 ? 2'd2 : 2'd0),
 		.recoil_74(set_jrec_74), .clk_74a(clk_74a), .bridge_wr(bridge_wr), .bridge_addr(bridge_addr),
-		.bridge_wr_data(bridge_wr_data), .mode(pll_mode), .vres(VRES),
+		.bridge_wr_data(bridge_wr_data), .mode(pll_mode), .vres(VRES), .hres(HRES),
 		.ext_we(CD_EXT_WE), .ext_re(CD_EXT_RE), .ext_a(CD_EXT_A), .ext_wd(CD_EXT_WD), .ext_rd(jvs_rd),
 		.en(jvs_en), .tx(jvs_tx), .dir(jvs_dir), .rx(jvs_rx), .sense(jvs_sense),
 		.pads(jvs_pads), .joy1(jvs_joy1), .joy2(jvs_joy2),
 		.gun_on(gun_on), .gun1_x(gun_x[0]), .gun1_y(gun_y[0]), .gun2_x(gun_x[1]), .gun2_y(gun_y[1]),
-		.gun_trig(gun_trig), .gun_start(gun_start)
+		.gun_off(gun_off), .gun_trig(gun_trig), .gun_start(gun_start),
+		.ana_mode(ana_mode), .ana_x(ana_x), .ana_y(ana_y), .ana_l(ana_l), .ana_r(ana_r)
 	);
-	// the Virtua Guns' sensors (Saturn_MiSTer's lightgun: X 0..255 across the screen, Y the line + 8; its trigger and
-	// Start outputs are not used, sat_jvs gives them; no crosshair, no auto-reload: off screen reloads as on a real gun)
-	genvar gp;
-	generate for (gp = 0; gp < 2; gp = gp + 1) begin : lg
-		lightgun gun (
-			.CLK(clk_sys), .RESET(rst_sys), .MOUSE(25'd0), .MOUSE_XY(1'b0),
-			.JOY_X(gun_x[gp] ^ 8'h80), .JOY_Y(gun_y[gp] ^ 8'h80), .JOY(12'd0), .BTN_MODE(1'b0), .RELOAD(1'b0),
-			.HDE(HBL_N), .VDE(VBL_N), .CE_PIX(DCLK), .FIELD(FIELD), .INTERLACE(INTERLACE), .HRES(HRES), .VRES(VRES),
-			.DCE_R(DCE_R), .SIZE(2'd3), .SENSOR_DELAY(8'd2), .CROSS_DRAW(),
-			.SENSOR(gun_sensor[gp]), .BTN_A(), .BTN_B(), .BTN_C(), .BTN_START()
-		);
-	end endgenerate
+	// the Virtua Guns' sensors (rtl/lightgun2.sv: Saturn_MiSTer's lightgun for two guns on one set of raster counters,
+	// the firmware giving the pixel, the line and off screen; no crosshair, no auto-reload: off screen reloads)
+	lightgun2 lg (
+		.CLK(clk_sys), .RESET(rst_sys), .X0(gun_x[0]), .Y0(gun_y[0]), .OFF0(gun_off[0]), .X1(gun_x[1]), .Y1(gun_y[1]),
+		.OFF1(gun_off[1]), .HDE(HBL_N), .VDE(VBL_N), .CE_PIX(DCLK), .SENSOR(gun_sensor)
+	);
 
 	// ============================================================================================== SDRAM (sdram1, emu)
 	sdram1 sdram1 (
@@ -463,6 +471,14 @@ module saturn_top #(
 		.dsr_offset(dsr_offset), .dsr_bridgeaddr(dsr_bridgeaddr), .dsr_length(dsr_length), .dsr_done(dsr_done),
 		.dsr_err(dsr_err), .bridge_addr(bridge_addr), .bridge_wr(bridge_wr), .bridge_wr_data(bridge_wr_data)
 	);
+
+	// ============================================================================================== Analogizer video
+	wire [ 4:0] avid_b;
+	sat_avideo iavid (
+		.clk(clk_sys), .mode_74(set_avid_74), .r(R), .g(G), .b(B), .hs_n(HS_N), .vs_n(VS_N), .hbl_n(HBL_N), .vbl_n(VBL_N),
+		.dclk(DCLK), .en(avid_en), .bank3(avid_bank3), .bank2(avid_bank2), .bank1_b(avid_b)
+	);
+	assign avid_bank1 = {clk_pix_90, avid_b};
 
 	// ============================================================================================== video, audio
 	av_video #(.FIELD_INV(0), .LASTF(1)) ivid (

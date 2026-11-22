@@ -16,15 +16,19 @@ reg  [31:0]  ext_wd = 0;
 wire [31:0]  ext_rd;
 wire         en, tx, dir, rx, sense, pads;
 wire [15:0]  joy1, joy2;
-reg  [1:0]   guns_74 = 0, recoil_74 = 1;
+reg  [1:0]   guns_74 = 0, recoil_74 = 1, ana_74 = 0;
+wire [1:0]   ana_mode;
+wire [7:0]   ana_x, ana_y, ana_l, ana_r;
 reg          clk_74a = 0, bridge_wr = 0;
 always #6.734 clk_74a = ~clk_74a;               // 74.25 MHz
 reg  [31:0]  bridge_addr = 0, bridge_wr_data = 0;
 wire [1:0]   gun_on, gun_trig, gun_start;
-wire [7:0]   gun1_x, gun1_y, gun2_x, gun2_y;
-sat_jvs #(.CLK_HZ(53_748_200)) dut (.clk, .rst, .on_74, .guns_74, .recoil_74, .clk_74a, .bridge_wr, .bridge_addr,
-    .bridge_wr_data, .mode, .vres(2'd1), .ext_we, .ext_re, .ext_a, .ext_wd, .ext_rd,
-    .en, .tx, .dir, .rx, .sense, .pads, .joy1, .joy2, .gun_on, .gun1_x, .gun1_y, .gun2_x, .gun2_y, .gun_trig, .gun_start);
+wire [9:0]   gun1_x, gun2_x;
+wire [8:0]   gun1_y, gun2_y;
+wire [1:0]   gun_off;
+sat_jvs #(.CLK_HZ(53_748_200)) dut (.clk, .rst, .on_74, .guns_74, .recoil_74, .ana_74, .ana_mode, .ana_x, .ana_y, .ana_l, .ana_r, .clk_74a, .bridge_wr, .bridge_addr,
+    .bridge_wr_data, .mode, .vres(2'd1), .hres(2'd1), .ext_we, .ext_re, .ext_a, .ext_wd, .ext_rd,
+    .en, .tx, .dir, .rx, .sense, .pads, .joy1, .joy2, .gun_on, .gun1_x, .gun1_y, .gun2_x, .gun2_y, .gun_off, .gun_trig, .gun_start);
 task automatic bw(input [31:0] ad, input [31:0] d);   // an APF bridge write
     @(posedge clk_74a) #1; bridge_addr = ad; bridge_wr_data = d; bridge_wr = 1;
     @(posedge clk_74a) #1; bridge_wr = 0;
@@ -148,22 +152,28 @@ initial begin
     for (int w = 0; w < 64; w++) bw(32'h5000_0000 + 4 * w, 32'h0101_0101 * w);
     repeat (10) @(posedge clk);
     jr(12, v); check(v[7:0] == 8'(g0 + 1), "PROF_SEQ + 1 after a profile load");
-    jw(10, 0); jr(11, v); check(v == 32'h3636_3636, $sformatf("PROF_D word 0x36 (%08x)", v));
-    jw(10, 9); jr(11, v); check(v == 32'h3F3F_3F3F, $sformatf("PROF_D word 0x3F (%08x)", v));
+    jw(10, 6'h36); jr(11, v); check(v == 32'h3636_3636, $sformatf("PROF_D word 0x36 (%08x)", v));
+    jw(10, 6'h3F); jr(11, v); check(v == 32'h3F3F_3F3F, $sformatf("PROF_D word 0x3F (%08x)", v));
+    jw(10, 6'h04); jr(11, v); check(v == 32'h0404_0404, $sformatf("PROF_D word 4: the whole profile kept (%08x)", v));
     bw(32'h5000_0000, 32'h1234_5678);
-    jw(10, 0); jr(11, v); check(v == 32'h3636_3636, "words below 0x36 not kept");
+    jw(10, 0); jr(11, v); check(v == 32'h1234_5678, $sformatf("PROF_D word 0 rewritten (%08x)", v));
     guns_74 = 2; recoil_74 = 2; repeat (10) @(posedge clk);
-    ext_r(6, v); check(v[29:28] == 2'd2 && v[27:26] == 2'd2 && v[25:24] == 2'd1, $sformatf("word 6: GUNS RECOIL VRES (%08x)", v));
+    ext_r(6, v); check(v[29:28] == 2'd2 && v[27:26] == 2'd2 && v[25:24] == 2'd1 && v[21:20] == 2'd1,
+                       $sformatf("word 6: GUNS RECOIL VRES HRES (%08x)", v));
     check(gun_on == 2'b11, "both ports guns while PADS");
-    jw(13, {14'd0, 1'b1, 1'b0, 8'd77, 8'd200}); jw(14, {14'd0, 1'b0, 1'b1, 8'd99, 8'd11});
-    check(gun1_x == 200 && gun1_y == 77 && gun_start == 2'b01 && gun_trig == 2'b10 && gun2_x == 11 && gun2_y == 99,
-          "GUN1 / GUN2 registers");
+    jw(13, {10'd0, 1'b1, 1'b0, 1'b0, 9'd277, 10'd700}); jw(14, {10'd0, 1'b0, 1'b1, 1'b1, 9'd99, 10'd11});
+    check(gun1_x == 700 && gun1_y == 277 && gun_start == 2'b01 && gun_trig == 2'b10 && gun2_x == 11 && gun2_y == 99
+          && gun_off == 2'b10, "GUN1 / GUN2 registers");
     guns_74 = 1; repeat (10) @(posedge clk);
     check(gun_on == 2'b01, "P1 gun only");
+    guns_74 = 0; ana_74 = 2; repeat (10) @(posedge clk);
+    ext_r(6, v); check(v[23:22] == 2'd2 && ana_mode == 2'd2 && gun_on == 2'b00, $sformatf("word 6 ANA, port 1 a wheel (%08x)", v));
+    jw(15, 32'h4433_2211);
+    check(ana_x == 8'h11 && ana_y == 8'h22 && ana_r == 8'h33 && ana_l == 8'h44, "ANA1 register");
 
     // ---- the menu's switch off: pins and pads given back
     on_74 = 0; repeat (10) @(posedge clk);
-    check(pads == 0 && en == 0 && gun_on == 2'b00, "switch off: PADS cleared, no gun, the pins released");
+    check(pads == 0 && en == 0 && gun_on == 2'b00 && ana_mode == 2'd0, "switch off: PADS cleared, no gun / wheel, pins released");
     jw(9, 1);
     check(pads == 0, "PADS stays 0 while off");
 

@@ -241,15 +241,19 @@ assign bridge_endian_little = 1;
 
 // cart is unused, so set all level translators accordingly
 // directions are 0:IN, 1:OUT
-assign cart_tran_bank3 = 8'hzz;
-assign cart_tran_bank3_dir = 1'b0;
-assign cart_tran_bank2 = 8'hzz;
-assign cart_tran_bank2_dir = 1'b0;
+// the Analogizer adapter's analog video (menu "Analogizer video", glue/sat_avideo.sv): banks 3 and 2, bank 1 [5:0]
+wire       avid_en;
+wire [7:0] avid_bank3, avid_bank2;
+wire [5:0] avid_bank1;
+assign cart_tran_bank3 = avid_en ? avid_bank3 : 8'hzz;
+assign cart_tran_bank3_dir = avid_en;
+assign cart_tran_bank2 = avid_en ? avid_bank2 : 8'hzz;
+assign cart_tran_bank2_dir = avid_en;
 // the Analogizer SNAC adapter's JVS wiring (Conf. A; menu "JVS", glue/sat_jvs.sv): bank 1 [7] DIR (OUT2) [6] TX (OUT1)
 // driven, bank 0 an input ([7] RX = IN4, [5] SENSE = IN7); else the template's tie-offs
 wire jvs_en, jvs_tx, jvs_dir;
-assign cart_tran_bank1 = jvs_en ? {jvs_dir, jvs_tx, 6'd0} : 8'hzz;
-assign cart_tran_bank1_dir = jvs_en;
+assign cart_tran_bank1 = (jvs_en || avid_en) ? {jvs_en ? {jvs_dir, jvs_tx} : 2'b00, avid_en ? avid_bank1 : 6'd0} : 8'hzz;
+assign cart_tran_bank1_dir = jvs_en || avid_en;
 assign cart_tran_bank0 = jvs_en ? 4'hz : 4'hf;
 assign cart_tran_bank0_dir = !jvs_en;
 assign cart_tran_pin30 = 1'b0;      // reset or cs2, we let the hw control it by itself
@@ -571,7 +575,11 @@ saturn_top #(.ARB_LEAN(ARB_LEAN)) isat (
     .jvs_tx           ( jvs_tx ),
     .jvs_dir          ( jvs_dir ),
     .jvs_rx           ( cart_tran_bank0[7] ),
-    .jvs_sense        ( cart_tran_bank0[5] )
+    .jvs_sense        ( cart_tran_bank0[5] ),
+    .avid_en          ( avid_en ),
+    .avid_bank3       ( avid_bank3 ),
+    .avid_bank2       ( avid_bank2 ),
+    .avid_bank1       ( avid_bank1 )
 );
 
 assign video_rgb_clock    = clk_pix;

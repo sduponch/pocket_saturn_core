@@ -13,16 +13,25 @@
 //     01 20 <players> <bytes> [22 <channels>] [32 <bytes> <OUTPUT1>] is the hardware's, every POLL_MS (written again
 //     when the outputs change). Answers stopping for RESTART_MS (the board off, the cable out): the Pocket's pad
 //     again, and the init again.
-//   - the JVS profile (data slot "JVS Profile", jvs_vendor.bin as on the other Analogizer JVS cores; sat_jvs keeps
-//     its bytes 0xD8 .. 0xFF): 0xD8 .. 0xDB the axes of P1 X, P1 Y, P2 X, P2 Y (bit 7 defined, bits 6..4 node - 1:
+//   - the JVS profile (data slot "JVS Profile", jvs_vendor.bin as on the other Analogizer JVS cores, all 256 bytes
+//     in sat_jvs): node 1's MAINID and vendor frames (bytes 0 and 1 point to them: the MAINID string, sent as
+//     15 <string> 00, then frames [length][command, data] .. [00], each sent as is; a Namco NA-JV drives its outputs
+//     only after them), sent after the features, 10 ms after each answer as jvs_ctrl does; 0xD8 .. 0xDB the axes of P1 X, P1 Y, P2 X, P2 Y (bit 7 defined, bits 6..4 node - 1:
 //     node 1 only here, bit 3 inverted, bits 2..0 channel), 0xE8 .. 0xEB the guns' trigger masks (2 bytes a player,
 //     JVS order), 0xF0 bit 0 the outputs valid, 0xF1 .. 0xF3 OUTPUT1's base, 0xF4 .. 0xF6 / 0xF7 .. 0xF9 the recoil
 //     masks of P1 / P2. Read at each init and whenever a new one is loaded (PROF_SEQ).
 //   - the switches (JVS order: Start, Service, Up, Down, Left, Right, Push 1, Push 2; Push 3 .. Push 8) as a Saturn
 //     pad, player 1 on port 1 and player 2 on port 2 (a gun's trigger switches left out):
 //       Push 1 2 3 = A B C   Push 4 5 6 = X Y Z   Push 7 8 = L R   Start = Start   (Service: unused)
-//   - a gun: its axes (X 0..255 across the screen, Y the line + 8 for the core's 224 / 240 / 256 lines), its trigger
-//     (the profile's mask) and Start, to sat_jvs's GUN registers; rtl/hps2pad.sv makes the port a Virtua Gun.
+//   - a gun: its axes as rtl/lightgun.sv (Saturn_MiSTer) takes a joystick's: X 0..255 to the pixel (0..318 of 320,
+//     0..349 of 352), Y to the line (224 / 240 / 256 lines), off screen within 2 pixels / lines of an edge (no light:
+//     the game reloads); its trigger (the profile's mask) and Start, to sat_jvs's GUN registers (rtl/lightgun2.sv
+//     compares with the beam); rtl/hps2pad.sv makes the port a Virtua Gun.
+//   - an analog device on port 1 (menu "P1 3D pad" / "P1 wheel", rtl/hps2pad.sv ANA1): the profile's P1 X (0xD8, the
+//     steering), Y (0xD9, the accelerator) and Z (0xE0, the brake), calibrated as they move: X around where it was
+//     at the init, its range each side what it has reached; Y and Z from where they rest, in whichever direction they
+//     go (no need to invert a pedal). 3D pad: X the stick, R the accelerator, L the brake. Arcade Racer: X the wheel,
+//     a pedal pressed over half is B (accelerator) / A (brake).
 //   - the recoil (the games drive none: made from the trigger, as the other Analogizer JVS cores): menu "JVS recoil"
 //     single (one 50 ms pulse a press) or auto (50 ms on, 150 ms off while held); OUTPUT1 = base | the recoil mask of
 //     each player whose pulse is on.
@@ -30,7 +39,7 @@
 #define JV_IDX       IO(0x78)   // sat_jvs: W the register JV_REG reaches; R {ON, PADS, GUNS, RECOIL, VRES, ..., IDX}
 #define JV_REG       IO(0x7C)
 enum { JR_ID, JR_CTRL, JR_STAT, JR_XFER, JR_PTR, JR_DATA, JR_PADS = 8, JR_PADS_ON = 9, JR_PROF_A = 10, JR_PROF_D = 11,
-       JR_PROF_SEQ = 12, JR_GUN1 = 13, JR_GUN2 = 14 };
+       JR_PROF_SEQ = 12, JR_GUN1 = 13, JR_GUN2 = 14, JR_ANA1 = 15 };
 enum {
 #ifndef JV_MS_EDGES
 #define JV_MS_EDGES 4000        // (a bench's firmware: -DJV_MS_EDGES=400, its milliseconds 10 times shorter)
@@ -41,23 +50,27 @@ enum {
 	JV_POLL_MS = 14,            // a 2-player answer with 8 channels and the frame take ~4 ms; the 838-13683B wants
 	                            // 10 ms between them
 	JV_GAP_MS = 10, JV_RESET_MS = 1000, JV_SETTLE_MS = 3000, JV_RESTART_MS = 500,
-	JV_RECOIL_ON_MS = 50, JV_RECOIL_CYC_MS = 200
+	JV_RECOIL_ON_MS = 50, JV_RECOIL_CYC_MS = 200,
+	JV_AN_MIN = 0x1000          // an axis's least range (of 0..FFFF) before it is believed
 };
-enum { J_OFF, J_RESET1, J_RESET2, J_SETADDR, J_IDENT, J_FEAT, J_RUN };
+enum { J_OFF, J_RESET1, J_RESET2, J_SETADDR, J_IDENT, J_FEAT, J_MAINID, J_VENDOR, J_RUN };
 
 static uint8_t jv_st, jv_sent, jv_players, jv_bytes, jv_good, jv_nch, jv_nout, jv_seq;
 static uint32_t jv_at, jv_seen, jv_next;   // the next init step; the last time GOOD moved; the next look (jv_now)
 static uint32_t jv_now, jv_t24;            // the SMPC's CE edges (SMPC_FW TIME [23:0], 4 MHz) made 32 bits
-static uint8_t jv_prof[40];                // the profile's bytes 0xD8 .. 0xFF
+static uint8_t jv_prof[256];               // the profile
+static uint8_t jv_vp;                      // the next vendor frame (its length byte) in the profile
 static uint32_t jv_out;                    // OUTPUT1 as last sent (bytes 1..3 in [7:0], [15:8], [23:16])
 static uint8_t jv_trig_d[2], jv_rc_on[2];
 static uint32_t jv_rc_t0[2];
+static struct { uint16_t init, lo, hi; uint8_t set; } jv_cal[3];   // P1 X, Y, Z as seen since the init
 
 static inline void jv_wr(uint32_t r, uint32_t v) { JV_IDX = r; JV_REG = v; }
 static inline uint32_t jv_rd(uint32_t r) { JV_IDX = r; return JV_REG; }
 static inline bool jv_before(uint32_t t, uint32_t at) { return (int32_t)(t - at) < 0; }
 static inline uint32_t jv_p24(unsigned a) { return jv_prof[a] | jv_prof[a + 1] << 8 | (uint32_t)jv_prof[a + 2] << 16; }
-#define JV_P(off) (off - 0xD8)
+#define JV_P(off) (off)
+#define JV_AX(i)  jv_prof[0xD8 + (i)]      // axis byte i: 0 P1 X, 1 P1 Y, 2 P2 X, 3 P2 Y, .. 8 P1 Z (0xE0)
 
 static void jv_send(const uint8_t* f, uint32_t n, uint32_t ctrl)
 {
@@ -78,10 +91,10 @@ static uint32_t jv_answer(uint8_t* b, uint32_t max)    // the last good answer (
 	for (uint32_t i = 0; i < n; i++) b[i] = (uint8_t)JV_REG;   // (each read moves PTR on)
 	return n;
 }
-static void jv_profile(void)                           // sat_jvs's copy of the profile (words 0x36 .. 0x3F)
+static void jv_profile(void)                           // sat_jvs's copy of the profile (64 words)
 {
 	jv_seq = (uint8_t)jv_rd(JR_PROF_SEQ);
-	for (unsigned w = 0; w < 10; w++) {
+	for (unsigned w = 0; w < 64; w++) {
 		jv_wr(JR_PROF_A, w);
 		const uint32_t v = jv_rd(JR_PROF_D);
 		for (unsigned k = 0; k < 4; k++) jv_prof[4 * w + k] = (uint8_t)(v >> (8 * k));   // (file byte 4k in [7:0])
@@ -93,6 +106,7 @@ static void jv_restart(uint32_t t, uint32_t after_ms)
 	jv_wr(JR_PADS_ON, 0);                       // the Pocket's pad on port 1 until the board answers again
 	jv_wr(JR_CTRL, 1u | JV_INIT_PERIOD << 8);   // (ON, POLL off)
 	jv_st = J_RESET1; jv_sent = 0; jv_players = 0; jv_nch = 0; jv_nout = 0;
+	for (unsigned k = 0; k < 3; k++) jv_cal[k].set = 0;
 	jv_at = t + after_ms * JV_MS;
 	jv_profile();
 }
@@ -130,10 +144,11 @@ static uint32_t jv_pad(uint32_t a, uint32_t b)
 	if (b & 0x08) p |= 1u << 3;                  // Push 7: L
 	return ~p & 0xFFFF;
 }
-// an axis of the profile (0 P1 X, 1 P1 Y, 2 P2 X, 3 P2 Y) from the answer's channels (16 bits each); 0x8000 undefined
+// an axis of the profile (0 P1 X, 1 P1 Y, 2 P2 X, 3 P2 Y, 8 P1 Z ..) from the answer's channels (16 bits each);
+// 0x8000 undefined
 static uint32_t jv_axis(unsigned i, const uint8_t* ch)
 {
-	const uint8_t d = jv_prof[i];
+	const uint8_t d = JV_AX(i);
 	if (!(d & 0x80) || (d & 0x70) || (d & 7) >= jv_nch) return 0x8000;
 	const uint32_t v = (uint32_t)ch[2 * (d & 7)] << 8 | ch[2 * (d & 7) + 1];
 	return (d & 8) ? (~v & 0xFFFF) : v;
@@ -153,8 +168,29 @@ static void jv_features(const uint8_t* b, uint32_t n)  // 00 len 01 01, then 4 b
 	if (jv_nch > 8) jv_nch = 8;
 	if (jv_nout > 3) jv_nout = 3;
 	bool axes = false;                           // (no axis in the profile: the channels are not polled)
-	for (unsigned i = 0; i < 4; i++) if (jv_prof[i] & 0x80) axes = true;
+	for (unsigned i = 0; i < 12; i++) if (i < 4 || i >= 8) if (JV_AX(i) & 0x80) axes = true;
 	if (!axes) jv_nch = 0;
+}
+
+// P1's axis k (0 X, 1 Y, 2 Z) calibrated: X 0..255 centred at 128 where it was at the init; Y, Z 0..255 from rest
+static uint32_t jv_cal_axis(unsigned k, uint32_t v)
+{
+	if (!jv_cal[k].set) { jv_cal[k].set = 1; jv_cal[k].init = jv_cal[k].lo = jv_cal[k].hi = (uint16_t)v; }
+	if (v < jv_cal[k].lo) jv_cal[k].lo = (uint16_t)v;
+	if (v > jv_cal[k].hi) jv_cal[k].hi = (uint16_t)v;
+	const int c = jv_cal[k].init, d = (int)v - c;
+	if (k == 0) {
+		int rg = d >= 0 ? jv_cal[k].hi - c : c - jv_cal[k].lo;
+		if (rg < JV_AN_MIN) rg = JV_AN_MIN;
+		int o = d * 127 / rg;
+		return (uint32_t)(128 + (o > 127 ? 127 : o < -127 ? -127 : o));
+	}
+	// a pedal: the way it has gone furthest from rest is its travel
+	const int up = jv_cal[k].hi - c, dn = c - jv_cal[k].lo;
+	const int rg = up >= dn ? up : dn, e = up >= dn ? d : -d;
+	if (rg < JV_AN_MIN || e <= 0) return 0;
+	const int o = e * 255 / rg;
+	return (uint32_t)(o > 255 ? 255 : o);
 }
 
 // a new answer: 00 len 01 | 01 system, the players' bytes | [01 the channels, 2 bytes each] | [01 the outputs]
@@ -163,8 +199,9 @@ static void jv_take(const uint8_t* b, uint32_t n, uint32_t st, uint32_t t)
 	const uint32_t a = 5u + (uint32_t)jv_players * jv_bytes;
 	if (n < a || b[2] != 0x01 || b[3] != 0x01) return;
 	const uint8_t* ch = (jv_nch && n >= a + 1u + 2u * jv_nch && b[a] == 0x01) ? &b[a + 1] : 0;
-	const unsigned guns = (st >> 28) & 3, recoil = (st >> 26) & 3, vres = (st >> 24) & 3;
-	const uint32_t lines = vres == 1 ? 240 : vres == 2 ? 256 : 224;
+	const unsigned guns = (st >> 28) & 3, recoil = (st >> 26) & 3, vres = (st >> 24) & 3, ana = (st >> 22) & 3;
+	const bool w352 = (st >> 20) & 1;
+	const uint32_t lines = vres == 1 ? 240 : vres == 2 ? 256 : 224, width = w352 ? 352 : 320;
 	uint32_t pad[2] = { 0xFFFF, 0xFFFF }, out = jv_p24(JV_P(0xF1));
 	for (uint32_t i = 0; i < jv_players; i++) {
 		const uint32_t s0 = b[5 + i * jv_bytes], s1 = jv_bytes > 1 ? b[6 + i * jv_bytes] : 0;
@@ -174,9 +211,9 @@ static void jv_take(const uint8_t* b, uint32_t n, uint32_t st, uint32_t t)
 		if (i < guns) {
 			uint32_t x = 0x8000, y = 0x8000;
 			if (ch) { x = jv_axis(2 * i, ch); y = jv_axis(2 * i + 1, ch); }
-			uint32_t y8 = 8 + ((y * lines) >> 16);
-			if (y8 > 255) y8 = 255;
-			jv_wr(i ? JR_GUN2 : JR_GUN1, (s0 & 0x80 ? 1u << 17 : 0) | (trig ? 1u << 16 : 0) | y8 << 8 | (x >> 8));
+			const uint32_t x8 = x >> 8, px = x8 + (x8 >> 2) + (w352 ? x8 >> 3 : 0), ln = (y * lines) >> 16;
+			const bool off = px < 2 || px >= width - 2 || ln < 2 || ln >= lines - 2;
+			jv_wr(i ? JR_GUN2 : JR_GUN1, (s0 & 0x80 ? 1u << 21 : 0) | (trig ? 1u << 20 : 0) | (off ? 1u << 19 : 0) | ln << 10 | px);
 		}
 		// the recoil: a press fires (auto: again every cycle while held); the pulse is on its first 50 ms
 		if (recoil && trig && (!jv_trig_d[i] || (recoil == 2 && !jv_before(t, jv_rc_t0[i] + JV_RECOIL_CYC_MS * JV_MS)))) {
@@ -187,9 +224,25 @@ static void jv_take(const uint8_t* b, uint32_t n, uint32_t st, uint32_t t)
 		if (jv_rc_on[i]) out |= jv_p24(i ? JV_P(0xF7) : JV_P(0xF4));
 		jv_trig_d[i] = trig;
 	}
+	if (ana && ch) {                               // port 1's 3D pad / Arcade Racer
+		const uint32_t x = jv_cal_axis(0, jv_axis(0, ch)), gas = jv_cal_axis(1, jv_axis(1, ch)),
+		               brk = jv_cal_axis(2, jv_axis(8, ch));
+		jv_wr(JR_ANA1, brk << 24 | gas << 16 | 0x80u << 8 | x);
+		if (ana == 2) {                            // (the wheel has no analog pedal: B / A past half way)
+			if (gas > 128) pad[0] &= ~(1u << 8);
+			if (brk > 128) pad[0] &= ~(1u << 10);
+		}
+	}
 	jv_wr(JR_PADS, pad[1] << 16 | pad[0]);
 	jv_wr(JR_PADS_ON, 1);
 	if (jv_outputs() && out != jv_out) { jv_out = out; jv_poll(); }   // (the new OUTPUT1 in the hardware's frame)
+}
+
+static void jv_run(uint32_t t)                 // the init done: the poll, the hardware's from now on
+{
+	jv_out = jv_p24(JV_P(0xF1));
+	jv_poll();
+	jv_st = J_RUN; jv_good = (uint8_t)(jv_rd(JR_STAT) >> 8); jv_seen = t;
 }
 
 static void jvs_step(void)
@@ -240,9 +293,17 @@ static void jvs_step(void)
 		case J_FEAT:
 			if (n > 4) jv_features(b, n);
 			if (jv_players == 0) { jv_restart(t, JV_RESET_MS); break; }
-			jv_out = jv_p24(JV_P(0xF1));
-			jv_poll();
-			jv_st = J_RUN; jv_good = (uint8_t)(jv_rd(JR_STAT) >> 8); jv_seen = t;
+			jv_vp = jv_prof[1];
+			if (jv_prof[0]) jv_st = J_MAINID;
+			else if (jv_vp) jv_st = J_VENDOR;
+			else jv_run(t);
+			break;
+		case J_MAINID:                               // (any answer: on to the vendor frames)
+			if (jv_vp) jv_st = J_VENDOR; else jv_run(t);
+			break;
+		case J_VENDOR:                               // the next frame, or the poll after the last
+			jv_vp = (uint8_t)(jv_vp + 1 + jv_prof[jv_vp]);
+			if (!jv_vp || jv_vp >= 0xD8 || !jv_prof[jv_vp]) jv_run(t);
 			break;
 		default: break;
 		}
@@ -256,6 +317,24 @@ static void jvs_step(void)
 	case J_SETADDR: jv_send(f_addr, 3, c); break;
 	case J_IDENT: jv_send(f_ident, 2, c); break;
 	case J_FEAT: jv_send(f_feat, 2, c); break;
+	case J_MAINID: {                                 // 01 15 <string> 00
+		uint8_t f[104];
+		uint32_t n = 0;
+		f[n++] = 0x01; f[n++] = 0x15;
+		for (unsigned a = jv_prof[0]; a < 0xD8 && jv_prof[a] && n < 102; a++) f[n++] = jv_prof[a];
+		f[n++] = 0x00;
+		jv_send(f, n, c);
+		break;
+	}
+	case J_VENDOR: {                                 // 01 <the frame>
+		uint8_t f[128];
+		uint32_t L = jv_prof[jv_vp], n = 0;
+		if (L > 126 || jv_vp + L >= 0xD8) { jv_run(jv_now); break; }
+		f[n++] = 0x01;
+		for (uint32_t k = 1; k <= L; k++) f[n++] = jv_prof[jv_vp + k];
+		jv_send(f, n, c);
+		break;
+	}
 	default: break;
 	}
 }

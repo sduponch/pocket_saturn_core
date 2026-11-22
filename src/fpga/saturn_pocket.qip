@@ -19,7 +19,7 @@ set_global_assignment -name VHDL_FILE [file join $::quartus(qip_path) rtl/bram.v
 set_global_assignment -name VHDL_FILE [file join $::quartus(qip_path) rtl/mlab.vhd ]
 set_global_assignment -name SYSTEMVERILOG_FILE [file join $::quartus(qip_path) rtl/sdram1.sv ]
 set_global_assignment -name SYSTEMVERILOG_FILE [file join $::quartus(qip_path) rtl/hps2pad.sv ]
-set_global_assignment -name SYSTEMVERILOG_FILE [file join $::quartus(qip_path) rtl/lightgun.sv ]
+set_global_assignment -name SYSTEMVERILOG_FILE [file join $::quartus(qip_path) rtl/lightgun2.sv ]
 
 # ---- glue (work/glue/rtl, unmodified)
 set_global_assignment -name VERILOG_FILE [file join $::quartus(qip_path) glue/clk_pll_core.v ]
@@ -38,6 +38,7 @@ set_global_assignment -name SYSTEMVERILOG_FILE [file join $::quartus(qip_path) g
 # the Analogizer SNAC adapter's JVS (an_jvs from MIRLO64, with a run-time bit divisor)
 set_global_assignment -name SYSTEMVERILOG_FILE [file join $::quartus(qip_path) glue/an_jvs.sv ]
 set_global_assignment -name SYSTEMVERILOG_FILE [file join $::quartus(qip_path) glue/sat_jvs.sv ]
+set_global_assignment -name SYSTEMVERILOG_FILE [file join $::quartus(qip_path) glue/sat_avideo.sv ]
 
 # ---- Pocket top and new blocks (work/pocket/rtl)
 set_global_assignment -name SYSTEMVERILOG_FILE [file join $::quartus(qip_path) pocket_rtl/psram0_arb.sv ]

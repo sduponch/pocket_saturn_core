@@ -44,7 +44,9 @@ set_false_path -to [get_registers {*|ipad|k0[*]}]
 # sat_jvs: the menu's "JVS" and "JVS recoil" (pk_settings, clk_74a) into clk_sys (3-flop); the JVS profile's words and
 # load count (clk_74a) read by the firmware as quasi-static data; the SNAC pins (RX, SENSE) are 2-flop synchronised in an_jvs
 set_false_path -to [get_registers {*|ijvs|set_s0[*]}]
-set_false_path -from [get_registers {*|ijvs|prof[*][*] *|ijvs|prof_seq[*]}] -to $clk_sys
+# sat_avideo: the menu's "Analogizer video" (clk_74a) into clk_sys (3-flop)
+set_false_path -to [get_registers {*|iavid|m0[*]}]
+set_false_path -from [get_registers {*|ijvs|prof_seq[*]}] -to $clk_sys
 # clk_reconf: PLL mode {PAL, DOTSEL} (3-flop synchroniser) and the PLL's lock (asynchronous output, 3-flop)
 set_false_path -to [get_registers {*|irec|m_s0[*] *|irec|lk_s[0]}]
 # cd_src_b / cd_apf (glue/cd REPORT 7): toggle handshakes (2-flop both ways); values held stable across them:
