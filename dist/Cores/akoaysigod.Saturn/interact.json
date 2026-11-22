@@ -161,6 +161,58 @@
                         "name": "B A Y = A B C, L1 R1 = L R"
                     }
                 ]
+            },
+            {
+                "name": "JVS (Analogizer)",
+                "id": 12,
+                "type": "list",
+                "enabled": true,
+                "persist": true,
+                "writeonly": true,
+                "address": "0x8000001C",
+                "defaultval": 0,
+                "options": [
+                    {
+                        "value": 0,
+                        "name": "Off"
+                    },
+                    {
+                        "value": 1,
+                        "name": "Pads"
+                    },
+                    {
+                        "value": 2,
+                        "name": "P1 gun"
+                    },
+                    {
+                        "value": 3,
+                        "name": "P1 + P2 guns"
+                    }
+                ]
+            },
+            {
+                "name": "JVS recoil",
+                "id": 13,
+                "type": "list",
+                "enabled": true,
+                "persist": true,
+                "writeonly": true,
+                "address": "0x8000002C",
+                "defaultval": 1,
+                "options": [
+                    {
+                        "value": 0,
+                        "name": "Off"
+                    },
+                    {
+                        "value": 1,
+                        "name": "Single"
+                    },
+                    {
+                        "value": 2,
+                        "name": "Auto"
+                    }
+                ]
             }
         ],
         "messages": []

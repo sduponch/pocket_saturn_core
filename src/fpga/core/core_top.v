@@ -245,10 +245,13 @@ assign cart_tran_bank3 = 8'hzz;
 assign cart_tran_bank3_dir = 1'b0;
 assign cart_tran_bank2 = 8'hzz;
 assign cart_tran_bank2_dir = 1'b0;
-assign cart_tran_bank1 = 8'hzz;
-assign cart_tran_bank1_dir = 1'b0;
-assign cart_tran_bank0 = 4'hf;
-assign cart_tran_bank0_dir = 1'b1;
+// the Analogizer SNAC adapter's JVS wiring (Conf. A; menu "JVS", glue/sat_jvs.sv): bank 1 [7] DIR (OUT2) [6] TX (OUT1)
+// driven, bank 0 an input ([7] RX = IN4, [5] SENSE = IN7); else the template's tie-offs
+wire jvs_en, jvs_tx, jvs_dir;
+assign cart_tran_bank1 = jvs_en ? {jvs_dir, jvs_tx, 6'd0} : 8'hzz;
+assign cart_tran_bank1_dir = jvs_en;
+assign cart_tran_bank0 = jvs_en ? 4'hz : 4'hf;
+assign cart_tran_bank0_dir = !jvs_en;
 assign cart_tran_pin30 = 1'b0;      // reset or cs2, we let the hw control it by itself
 assign cart_tran_pin30_dir = 1'bz;
 assign cart_pin30_pwroff_reset = 1'b0;  // hardware can control this
@@ -489,7 +492,7 @@ saturn_top #(.ARB_LEAN(ARB_LEAN)) isat (
     .save_rd_data     ( save_rd_data ),
 
     .apf_reset_n      ( reset_n ),
-    .ds_requestwrite  ( dataslot_requestwrite ),
+    .ds_requestwrite  ( dataslot_requestwrite && dataslot_requestwrite_id != 16'd5 ),   // (the JVS profile, slot 5, reloads without a reset)
     .ds_allcomplete   ( dataslot_allcomplete ),
     .rtc_valid        ( rtc_valid ),
     .rtc_date_bcd     ( rtc_date_bcd ),
@@ -563,7 +566,12 @@ saturn_top #(.ARB_LEAN(ARB_LEAN)) isat (
     .video_hs         ( video_hs ),
     .clk_audio        ( clk_audio ),
     .audio_l          ( audio_l ),
-    .audio_r          ( audio_r )
+    .audio_r          ( audio_r ),
+    .jvs_en           ( jvs_en ),
+    .jvs_tx           ( jvs_tx ),
+    .jvs_dir          ( jvs_dir ),
+    .jvs_rx           ( cart_tran_bank0[7] ),
+    .jvs_sense        ( cart_tran_bank0[5] )
 );
 
 assign video_rgb_clock    = clk_pix;

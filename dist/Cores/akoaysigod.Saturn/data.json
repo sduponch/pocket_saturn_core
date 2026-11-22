@@ -61,6 +61,18 @@
                 "address": "0x30000000"
             },
             {
+                "name": "JVS Profile",
+                "id": 5,
+                "required": false,
+                "parameters": "0x203",
+                "filename": "jvs_vendor.bin",
+                "extensions": [
+                    "bin"
+                ],
+                "size_maximum": "0x100",
+                "address": "0x50000000"
+            },
+            {
                 "name": "Disc (.cue)",
                 "id": 14,
                 "required": false,
@@ -338,17 +350,6 @@
             {
                 "name": "File 24",
                 "id": 39,
-                "required": false,
-                "parameters": "0x0",
-                "deferload": true,
-                "secondary": true,
-                "extensions": [
-                    "bin"
-                ]
-            },
-            {
-                "name": "File 25",
-                "id": 40,
                 "required": false,
                 "parameters": "0x0",
                 "deferload": true,

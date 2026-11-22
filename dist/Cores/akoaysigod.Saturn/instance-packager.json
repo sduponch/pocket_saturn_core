@@ -2,8 +2,8 @@
     "output": "Assets/saturn/akoaysigod.Saturn",
     "platform_id": "saturn",
     "slot_limit": {
-        "count": 26,
-        "message": "Games with more than 25 .bin files need a single-.bin rip (chdman extractcd)."
+        "count": 25,
+        "message": "Games with more than 24 .bin files need a single-.bin rip (chdman extractcd)."
     },
     "data_slots": [
         {

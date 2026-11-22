@@ -43,6 +43,7 @@ src/fpga/rtl/Saturn/CD/*.hex
 *.sav
 !dist/Cores/*/icon.bin
 !dist/Platforms/_images/*.bin
+!dist/Assets/saturn/akoaysigod.Saturn/jvs_*.bin
 
 # packaging outputs
 build/

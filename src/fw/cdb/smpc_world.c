@@ -183,6 +183,7 @@ void smpc_poll_main(void)
 static void poll_run(void)
 {
 	in_poll = true;
+	jvs_step();                                  // (smpc_jvs.c: at most once a millisecond)
 	refresh();
 	uint32_t start = now;
 	while (!m.halted) {

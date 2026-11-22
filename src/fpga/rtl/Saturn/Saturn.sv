@@ -159,6 +159,7 @@ module Saturn
 	// write of I/O word 0x60 + 4 * CD_EXT_A = CD_EXT_WE for one clock with CD_EXT_A / CD_EXT_WD; its read samples CD_EXT_RD
 	output     [ 2: 0] CD_EXT_A,
 	output             CD_EXT_WE,
+	output             CD_EXT_RE,
 	output     [31: 0] CD_EXT_WD,
 	input      [31: 0] CD_EXT_RD,
 `endif
@@ -1418,9 +1419,9 @@ module Saturn
 	CDB_HLE
 `ifdef CD_EXTIO
 	// the Pocket: the firmware with the disc source (fw/cdb: build.sh SMPC_FW=1 CD_SRC=1) in two RAM banks, 20480 +
-	// 2048 words (88 KB; Quartus maps this byte-enabled RAM in 4096-word groups of 16 M10K: a second bank of 2048 words
-	// costs 8 M10K where growing the one RAM would cost 16)
-	#(.FW_FILE("rtl/Saturn/CD/cdb_hle_pocket_fw.hex"), .RAM_WORDS(22528),
+	// 4096 words (96 KB; Quartus maps this byte-enabled RAM in 4096-word groups of 16 M10K). Bank 1 was 2048 words (8
+	// M10K); 4096 (8 M10K more) for the JVS code (smpc_jvs.c) and the code size of the LLVM versions at hand
+	#(.FW_FILE("rtl/Saturn/CD/cdb_hle_pocket_fw.hex"), .RAM_WORDS(24576),
 	  .RAM_BANK0(20480), .FW_FILE1("rtl/Saturn/CD/cdb_hle_pocket_fw_1.hex"))
 `else
 `ifdef SMPC_FW
@@ -1476,6 +1477,7 @@ module Saturn
 `ifdef CD_EXTIO
 		.EXT_A(CD_EXT_A),
 		.EXT_WE(CD_EXT_WE),
+		.EXT_RE(CD_EXT_RE),
 		.EXT_WD(CD_EXT_WD),
 		.EXT_RD(CD_EXT_RD),
 `endif

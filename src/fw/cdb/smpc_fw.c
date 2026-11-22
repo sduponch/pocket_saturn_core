@@ -2,4 +2,5 @@
 // small accessors inline into the runtime's register / port / RAM functions (the MCU program, smpc_mcu_gen.c, calls
 // the runtime; build.sh compiles this file instead of the two).
 #include "smpc_rt.c"
+#include "smpc_jvs.c"     // (a JVS board as the pads: poll_run calls jvs_step)
 #include "smpc_world.c"

@@ -114,7 +114,13 @@ module saturn_top #(
 	output wire        video_hs,
 	output wire        clk_audio,
 	output wire [15:0] audio_l,
-	output wire [15:0] audio_r
+	output wire [15:0] audio_r,
+	// the Analogizer SNAC adapter's JVS wiring (glue/sat_jvs.sv): bank 0 an input while jvs_en, bank 1 [7] DIR [6] TX
+	output wire        jvs_en,
+	output wire        jvs_tx,
+	output wire        jvs_dir,
+	input  wire        jvs_rx,
+	input  wire        jvs_sense
 );
 	// ============================================================================================== clocks
 	wire        clk_sys, clk_ram;
@@ -144,6 +150,7 @@ module saturn_top #(
 	wire [ 3:0] area_code;
 	wire        set_fast, set_blur, set_bob, set_dz;
 	wire [ 1:0] set_padmap;
+	wire [ 1:0] set_jvs_74, set_jrec_74;   // clk_74a: the menu's "JVS" and "JVS recoil" (sat_jvs)
 	wire [64:0] RTC;
 `ifdef A6_DBG
 	wire [ 1:0] set_lay;                   // (A6) clk_sys settings
@@ -166,7 +173,8 @@ module saturn_top #(
 		.clk_74a(clk_74a), .bridge_addr(bridge_addr), .bridge_wr(bridge_wr), .bridge_wr_data(bridge_wr_data),
 		.rtc_valid(rtc_valid), .rtc_date_bcd(rtc_date_bcd), .rtc_time_bcd(rtc_time_bcd),
 		.clk_sys(clk_sys), .cart_type(cart_type), .area_code(area_code), .pal(PAL), .fast(set_fast), .blur(set_blur),
-		.bob(set_bob), .padmap(set_padmap), .dz_en(set_dz), .usr_reset(usr_reset), .rtc(RTC), .cart_type_74(cart_type_74)
+		.bob(set_bob), .padmap(set_padmap), .dz_en(set_dz), .usr_reset(usr_reset), .rtc(RTC), .cart_type_74(cart_type_74),
+		.jvs_74(set_jvs_74), .jvs_recoil_74(set_jrec_74)
 `ifdef A6_DBG
 		, .dbg_layout(set_lay), .dbg_wcoff(set_wcoff), .dbg_flgoff(set_flgoff), .dbg_gap2(set_gap2)
 `endif
@@ -230,8 +238,9 @@ module saturn_top #(
 	wire [23:0] CD_SEC_LBA;
 	wire [15:0] CD_SEC_DATA;
 	wire [ 2:0] CD_EXT_A;
-	wire        CD_EXT_WE;
-	wire [31:0] CD_EXT_WD, CD_EXT_RD;
+	wire        CD_EXT_WE, CD_EXT_RE;
+	wire [31:0] CD_EXT_WD, CD_EXT_RD, cd_src_rd, jvs_rd;
+	assign CD_EXT_RD = CD_EXT_A[2:1] == 2'b11 ? jvs_rd : cd_src_rd;   // EXT words 6, 7: the JVS (sat_jvs)
 	wire [18:1] CD_RAM_A;
 	wire [15:0] CD_RAM_D, CD_RAM_Q;
 	wire [ 1:0] CD_RAM_WE;
@@ -283,7 +292,7 @@ module saturn_top #(
 		.CD_CE(CD_CE),
 		.CD_DISC_IN(CD_DISC_IN), .CD_SEC_REQ(CD_SEC_REQ), .CD_SEC_LBA(CD_SEC_LBA), .CD_SEC_WR(CD_SEC_WR),
 		.CD_SEC_DATA(CD_SEC_DATA), .CD_SEC_WAIT(CD_SEC_WAIT),
-		.CD_EXT_A(CD_EXT_A), .CD_EXT_WE(CD_EXT_WE), .CD_EXT_WD(CD_EXT_WD), .CD_EXT_RD(CD_EXT_RD),
+		.CD_EXT_A(CD_EXT_A), .CD_EXT_WE(CD_EXT_WE), .CD_EXT_RE(CD_EXT_RE), .CD_EXT_WD(CD_EXT_WD), .CD_EXT_RD(CD_EXT_RD),
 		.CD_RAM_A(CD_RAM_A), .CD_RAM_D(CD_RAM_D), .CD_RAM_WE(CD_RAM_WE), .CD_RAM_RD(CD_RAM_RD), .CD_RAM_CS(CD_RAM_CS),
 		.CD_RAM_Q(CD_RAM_Q), .CD_RAM_RDY(CD_RAM_RDY),
 
@@ -299,13 +308,42 @@ module saturn_top #(
 	);
 
 	// ============================================================================================== pad (port 1)
-	wire [15:0] joy1;
+	wire [15:0] joy1, jvs_joy1, jvs_joy2;
+	wire        jvs_pads;
+	wire [ 1:0] gun_on, gun_trig, gun_start, gun_sensor;
+	wire [ 7:0] gun_x [2], gun_y [2];
 	pk_pad ipad (.clk_sys(clk_sys), .keys_74(cont1_key), .map(set_padmap), .joy1(joy1));
 	HPS2PAD PAD (
 		.PDR1I(SMPC_PDR1I), .PDR1O(SMPC_PDR1O), .DDR1(SMPC_DDR1),
 		.PDR2I(SMPC_PDR2I), .PDR2O(SMPC_PDR2O), .DDR2(SMPC_DDR2),
-		.JOY1(joy1)
+		.JOY1(jvs_pads ? jvs_joy1 : joy1), .JOY2(jvs_joy2), .JOY2_ON(jvs_pads),
+		.LGUN1_ON(gun_on[0]), .LGUN1_TRIG(gun_trig[0]), .LGUN1_START(gun_start[0]), .LGUN1_SENSOR(gun_sensor[0]),
+		.LGUN2_ON(gun_on[1]), .LGUN2_TRIG(gun_trig[1]), .LGUN2_START(gun_start[1]), .LGUN2_SENSOR(gun_sensor[1])
 	);
+	// a JVS board's two players as the two pads or Virtua Guns, the CD block's firmware polling it (fw/cdb/smpc_jvs.c);
+	// "JVS (Analogizer)": 0 off, 1 pads, 2 P1 gun, 3 P1 + P2 guns
+	sat_jvs #(.CLK_HZ(53_748_200)) ijvs (
+		.clk(clk_sys), .rst(rst_sys), .on_74(set_jvs_74 != 2'd0), .guns_74(set_jvs_74 == 2'd3 ? 2'd2 : set_jvs_74 == 2'd2 ? 2'd1 : 2'd0),
+		.recoil_74(set_jrec_74), .clk_74a(clk_74a), .bridge_wr(bridge_wr), .bridge_addr(bridge_addr),
+		.bridge_wr_data(bridge_wr_data), .mode(pll_mode), .vres(VRES),
+		.ext_we(CD_EXT_WE), .ext_re(CD_EXT_RE), .ext_a(CD_EXT_A), .ext_wd(CD_EXT_WD), .ext_rd(jvs_rd),
+		.en(jvs_en), .tx(jvs_tx), .dir(jvs_dir), .rx(jvs_rx), .sense(jvs_sense),
+		.pads(jvs_pads), .joy1(jvs_joy1), .joy2(jvs_joy2),
+		.gun_on(gun_on), .gun1_x(gun_x[0]), .gun1_y(gun_y[0]), .gun2_x(gun_x[1]), .gun2_y(gun_y[1]),
+		.gun_trig(gun_trig), .gun_start(gun_start)
+	);
+	// the Virtua Guns' sensors (Saturn_MiSTer's lightgun: X 0..255 across the screen, Y the line + 8; its trigger and
+	// Start outputs are not used, sat_jvs gives them; no crosshair, no auto-reload: off screen reloads as on a real gun)
+	genvar gp;
+	generate for (gp = 0; gp < 2; gp = gp + 1) begin : lg
+		lightgun gun (
+			.CLK(clk_sys), .RESET(rst_sys), .MOUSE(25'd0), .MOUSE_XY(1'b0),
+			.JOY_X(gun_x[gp] ^ 8'h80), .JOY_Y(gun_y[gp] ^ 8'h80), .JOY(12'd0), .BTN_MODE(1'b0), .RELOAD(1'b0),
+			.HDE(HBL_N), .VDE(VBL_N), .CE_PIX(DCLK), .FIELD(FIELD), .INTERLACE(INTERLACE), .HRES(HRES), .VRES(VRES),
+			.DCE_R(DCE_R), .SIZE(2'd3), .SENSOR_DELAY(8'd2), .CROSS_DRAW(),
+			.SENSOR(gun_sensor[gp]), .BTN_A(), .BTN_B(), .BTN_C(), .BTN_START()
+		);
+	end endgenerate
 
 	// ============================================================================================== SDRAM (sdram1, emu)
 	sdram1 sdram1 (
@@ -418,7 +456,7 @@ module saturn_top #(
 	// ============================================================================================== CD (design B2)
 	cd_src_b #(.SLOTS(6), .BRIDGE_LE(1), .BASE(4'h4)) icd (
 		.clk(clk_sys), .rst_n(~rst_sys),
-		.ext_we(CD_EXT_WE), .ext_a(CD_EXT_A), .ext_wd(CD_EXT_WD), .ext_rd(CD_EXT_RD),
+		.ext_we(CD_EXT_WE), .ext_a(CD_EXT_A), .ext_wd(CD_EXT_WD), .ext_rd(cd_src_rd),
 		.disc_in(CD_DISC_IN), .sec_req(CD_SEC_REQ), .sec_lba(CD_SEC_LBA), .sec_wr(CD_SEC_WR), .sec_data(CD_SEC_DATA),
 		.sec_wait(CD_SEC_WAIT),
 		.clk_74a(clk_74a), .datatable_addr(cd_dt_addr), .datatable_q(datatable_q), .dsr_read(dsr_read), .dsr_id(dsr_id),

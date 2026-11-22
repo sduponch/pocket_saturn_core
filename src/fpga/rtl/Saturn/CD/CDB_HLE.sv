@@ -80,6 +80,7 @@ module CDB_HLE #(
 	// clock's end (I/O accesses take one clock, as the other I/O words)
 	output     [ 2: 0] EXT_A,
 	output             EXT_WE,
+	output             EXT_RE,             // a firmware read of the port, for one clock (the clock EXT_RD is taken)
 	output     [31: 0] EXT_WD,
 	input      [31: 0] EXT_RD,
 `endif
@@ -397,6 +398,7 @@ module CDB_HLE #(
 	// the EXT port: I/O words 0x60-0x7C (written as the SMPC_FW words are: one clock, also while RES_N holds the CD block)
 	assign EXT_A  = mem_addr[4:2];
 	assign EXT_WE = mem_valid && !mem_ready && !sel_ram && !sel_cdr && mem_wstrb != 4'b0000 && mem_addr[7:5] == 3'b011 && !CPU_RESET;
+	assign EXT_RE = mem_valid && !mem_ready && !sel_ram && !sel_cdr && mem_wstrb == 4'b0000 && mem_addr[7:5] == 3'b011 && !CPU_RESET;
 	assign EXT_WD = mem_wdata;
 `endif
 

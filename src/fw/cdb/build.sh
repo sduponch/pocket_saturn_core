@@ -27,7 +27,7 @@ LDS=link.ld
 SF=
 if [ -n "$SMPC_FW" ]; then
   if [ -n "$CD_SRC" ]; then
-    WORDS=${WORDS:-22528}; BANK0=${BANK0:-20480}
+    WORDS=${WORDS:-24576}; BANK0=${BANK0:-20480}   # (88 KB + 8 KB for the JVS, smpc_jvs.c: fpga/rtl/Saturn/Saturn.sv)
     OUT=${OUT:-$RTL/Saturn/CD/cdb_hle_pocket_fw.hex}
   fi
   WORDS=${WORDS:-20480}

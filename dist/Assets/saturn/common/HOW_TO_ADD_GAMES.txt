@@ -7,7 +7,7 @@ Each game needs two things on the SD card:
   2. Its entry, the game you pick in the menu:                  Assets/saturn/akoaysigod.Saturn/MyGame.json
 
 The core reads the .cue itself. Both kinds of rip work: one .bin per track (Redump) or a
-single .bin (chdman extractcd, binmerge). Up to 25 .bin files per game.
+single .bin (chdman extractcd, binmerge). Up to 24 .bin files per game.
 
 The BIOS goes in this folder too, named boot.rom (512 KB, not included).
 
@@ -33,7 +33,7 @@ By hand
      - "data_path": the game's folder name here in Assets/saturn/common/, ending with a /.
      - id 14: the .cue.
      - ids 16, 17, 18, ...: the .bin files in the order the .cue lists them (its FILE
-       lines), up to id 40.
+       lines), up to id 39.
      - "filename": exactly as the file is named.
      - Every line in the list except the last ends with a comma.
 
